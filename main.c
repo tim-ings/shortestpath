@@ -33,6 +33,8 @@ The number of vertices in the input matrix should be evenly divisible by the num
 #define true 1
 #define false 0
 
+// #define DEBUG
+
 struct {
     bool shouldOutput;
     bool shouldTime;
@@ -44,7 +46,7 @@ struct {
 void floydWarshall(int* partMat, int nMain, int commRank, int commSize, MPI_Comm comm) {
     int root;
     // malloc an array to store row k
-    int* kRow = malloc(nMain * sizeof(int));
+    int* kRow = mallocRetry(nMain * sizeof(int));
     int kMain; // pre c99 compatibility
     for (kMain = 0; kMain < nMain; kMain++) {
         int kRank = kMain / (nMain / commSize);
@@ -114,7 +116,9 @@ int main(int argc, char* argv[]) {
     // Determines the rank of the calling process in the communicator
     int commRank;
     MPI_Comm_rank(MPI_COMM_WORLD, &commRank);
-
+#ifdef DEBUG
+    if (commRank == RANK_ROOT) printf("\tABOUT TO START PARSING CLI ARGS\n");
+#endif
     CLARGS args;
     if (!parseArgs(argc, argv, &args) && commRank == RANK_ROOT) {
         printUsage(argv[0]);
@@ -123,6 +127,9 @@ int main(int argc, char* argv[]) {
         exit(EXIT_FAILURE);
     }
 
+#ifdef DEBUG
+    if (commRank == RANK_ROOT) printf("\tABOUT TO START FILE LOADING ON ROOT\n");
+#endif
     // Load adjacency matrix from binary file
     int inN;
     int* inMat;
@@ -140,23 +147,38 @@ int main(int argc, char* argv[]) {
         }
     }
 
+#ifdef DEBUG
+    if (commRank == RANK_ROOT) printf("\tABOUT TO BCASR IN N\n");
+#endif
     // Broadcasts a message from the process with rank root to all other processes of the group
     // broadcast the n for the input matrix
     MPI_Bcast(&inN, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
+#ifdef DEBUG
+    if (commRank == RANK_ROOT) printf("\tABOUT TO START TIMING\n");
+#endif
     // Returns an elapsed time on the calling processor
     // get the start time of our algorithm
     double t0 = MPI_Wtime();
 
+#ifdef DEBUG
+    if (commRank == RANK_ROOT) printf("\tABOUT TO START SCATTERING\n");
+#endif
     // Sends data from one task to all tasks in a group
     // scatter the input matrix to all our processes
     int partN = inN * inN / commSize;
     int* partMat = matNew(partN);
     MPI_Scatter(inMat, partN, MPI_INT, partMat, partN, MPI_INT, RANK_ROOT, MPI_COMM_WORLD);
 
+#ifdef DEBUG
+    if (commRank == RANK_ROOT) printf("\tABOUT TO START FLOYD\n");
+#endif
     // run our floyd-warshall algorithm in our part matrix
     floydWarshall(partMat, inN, commRank, commSize, MPI_COMM_WORLD);
     
+#ifdef DEBUG
+    if (commRank == RANK_ROOT) printf("\tABOUT TO START GATHERING\n");
+#endif
     // Gathers values from a group of processes
     // this is the opposite of scatter
     // we use this to reconstruct our final matrix
@@ -164,10 +186,16 @@ int main(int argc, char* argv[]) {
     int* finalMat = matNew(finalN);
     MPI_Gather(partMat, partN, MPI_INT, finalMat, partN, MPI_INT, RANK_ROOT, MPI_COMM_WORLD);
 
+#ifdef DEBUG
+    if (commRank == RANK_ROOT) printf("\tABOUT TO STOP TIMING\n");
+#endif
     // Returns an elapsed time on the calling processor
     // get the end time of our algorithm
     double t1 = MPI_Wtime();
 
+#ifdef DEBUG
+    if (commRank == RANK_ROOT) printf("\tABOUT TO OUTPUT REQUIRED DATA\n");
+#endif
     // Outputs the requested data from root
     if (commRank == RANK_ROOT) {
         if (args.shouldPrint) {
@@ -184,10 +212,16 @@ int main(int argc, char* argv[]) {
         }
     }
 
+#ifdef DEBUG
+    if (commRank == RANK_ROOT) printf("\tABOUT TO FREE MEMORY\n");
+#endif
     // Terminates MPI execution environment
     free(inMat);
     free(partMat);
     free(finalMat);
+#ifdef DEBUG
+    if (commRank == RANK_ROOT) printf("\tABOUT TO FINALISE\n");
+#endif
     MPI_Finalize();
     return EXIT_SUCCESS;
 }

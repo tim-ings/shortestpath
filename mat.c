@@ -2,9 +2,27 @@
 #include "mat.h"
 
 
+void* mallocRetry(size_t s) {
+#ifdef MALLOC_SHOULD_RETRY
+    void* mem = NULL;
+    int attempts = 0;
+    while (mem == NULL && attempts < MALLOC_MAX_RETRY) {
+        mem = malloc(s);
+        attempts++;
+    }
+    if (mem == NULL) {
+        printf("WARNING: FAILED TO ALLOCATE MEMORY AFTER %d RETRIES\n", attempts);
+        exit(EXIT_FAILURE);
+    }
+    return mem;
+#else
+    return malloc(s);
+#endif
+}
+
 // Allocates a new matrix
 int* matNew(int n) {
-    return malloc(n * n * sizeof(int));
+    return mallocRetry(n * n * sizeof(int));
 }
 
 // Gets a value from matrix mat at (i,j) with dimensions n

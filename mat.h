@@ -8,8 +8,11 @@
 #include <limits.h>
 
 #define INT_INF INT_MAX / 2
+#define MALLOC_MAX_RETRY 50
+#define MALLOC_SHOULD_RETRY
 
 
+void* mallocRetry(size_t s);
 int* matNew(int n);
 int matGet(int* mat, int n, int i, int j);
 void matSet(int* mat, int n, int i, int j, int v);
