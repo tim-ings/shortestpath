@@ -7,7 +7,6 @@
 
 #define RANK_ROOT 0
 
-const int INFINITY = INT_MAX / 2;
 
 void floydWarshall(int* partMat, int nMain, int commRank, int commSize, MPI_Comm comm) {
     int root;
