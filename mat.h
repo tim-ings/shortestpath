@@ -1,4 +1,9 @@
 // Tim Ings 21716194
+// This file declares functions that are used to manipulate matrices
+//
+// if MALLOC_SHOULD_RETRY is defined then all calls to malloc 
+// will be repeated MALLOC_MAX_RETRY times. This is useful for larger
+// matrices as sometimes the clusters do not have enough memory
 #ifndef MAT_H
 #define MAT_H
 

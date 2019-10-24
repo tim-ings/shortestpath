@@ -8,17 +8,20 @@ Compile:
     mpicc -std=c99 *.c -o main.out
 
 Run:
-    mpirun [-np <numprocs>] main.out <file> [-p] [-o] [-t]
+    mpirun [-np <numprocs>] [--hostfile <hostfile>] main.out <file> [-p] [-o] [-t]
     
     Required:
         <file>  path to binary file containing input adjacency matrix
     Optional:
-        -np     Number is processes to launch
-        -p      Prints final adjacency matrix to stdout 
-        -o      Outputs matrix to binary file
-        -t      Times the operation and outputs result to stdout
+        --hostfile  Specify MPI hostfile
+        -np         Number is processes to launch
+        -p          Prints final adjacency matrix to stdout 
+        -o          Outputs matrix to binary file
+        -t          Times the operation and outputs result to stdout
 
 The number of vertices in the input matrix should be evenly divisible by the number of processes requested
+
+Compiling with DEBUG defined will print out the next action that program will take on the root process
 */
 
 #include <stdio.h>
@@ -29,12 +32,16 @@ The number of vertices in the input matrix should be evenly divisible by the num
 #include "mat.h"
 
 #define RANK_ROOT 0
+
+// simple bool implementation for pre c99 compatibility
 #define bool int
 #define true 1
 #define false 0
 
+// Compiling with DEBUG defined will print out the next action that program will take on the root process
 //#define DEBUG
 
+// struct to hold parsed command line args
 struct {
     bool shouldOutput;
     bool shouldTime;
@@ -43,14 +50,15 @@ struct {
 } typedef CLARGS;
 
 
+// floyd warshall implementation that works on part mats and utilises Open MPI
 void floydWarshall(int* partMat, int nMain, int commRank, int commSize, MPI_Comm comm) {
     int root;
     // malloc an array to store row k
     int* kRow = mallocRetry(nMain * sizeof(int));
     int kMain; // pre c99 compatibility
     for (kMain = 0; kMain < nMain; kMain++) {
-        int kRank = kMain / (nMain / commSize);
-        // copy row k into kRow if this is our k row
+        int kRank = kMain / (nMain / commSize); // get the rank of the owner of this row
+        // copy row k into kRow if this is our processes' k row
         if (commRank == kRank) {
             int kPart = kMain % (nMain / commSize);
             int kRowJ;
@@ -59,15 +67,18 @@ void floydWarshall(int* partMat, int nMain, int commRank, int commSize, MPI_Comm
             }
         }
         // Broadcasts a message from the process with rank root to all other processes of the group
-        // We boadcast the row k to all other processes using kRank, the rank of the process working on this row
+        // We boadcast the row k to all other processes using kRank as root
+        // that is, the rank of the process who has been assinged this row by MPI_Scatter
         MPI_Bcast(kRow, nMain, MPI_INT, kRank, comm);
         int iPart;
         // update shorest paths
         for (iPart = 0; iPart < nMain / commSize; iPart++) {
             int jMain;
             for (jMain = 0; jMain < nMain; jMain++) {
+                // calculate a potentially shorter path
                 int val = matGet(partMat, nMain, iPart, kMain);
                 val += kRow[jMain];
+                // if it is shorter, then update our matrix
                 if (val < matGet(partMat, nMain, iPart, jMain)) {
                     matSet(partMat, nMain, iPart, jMain, val);
                 }
@@ -77,6 +88,7 @@ void floydWarshall(int* partMat, int nMain, int commRank, int commSize, MPI_Comm
     free(kRow);
 }
 
+// prints applications usage to stdout
 void printUsage(const char* name) {
     printf("Usage: %s <file> [-o] [-t] [-p]\n"
            "\t<file>\tPath to binary file containg an adjacency matrix\n"
@@ -85,6 +97,9 @@ void printUsage(const char* name) {
            "\t-p\tPrints result to stdout\n", name);
 }
 
+// parses command line arguments
+// returns false on invalid argc/argv
+// outputs to argsOut
 bool parseArgs(int argc, char* argv[], CLARGS* argsOut) {
     // get the file path or fail
     if (argc < 2) {
@@ -105,24 +120,29 @@ bool parseArgs(int argc, char* argv[], CLARGS* argsOut) {
     return true;
 }
 
+// entry point
 int main(int argc, char* argv[]) {
     // Initializes the MPI execution environment
     MPI_Init(&argc, &argv);
 
     // Returns the size of the group associated with a communicator
+    // we use this to partition our input matrix
     int commSize;
     MPI_Comm_size(MPI_COMM_WORLD, &commSize);
 
     // Determines the rank of the calling process in the communicator
+    // we use this to identify the current process
     int commRank;
     MPI_Comm_rank(MPI_COMM_WORLD, &commRank);
 #ifdef DEBUG
     if (commRank == RANK_ROOT) printf("\tABOUT TO START PARSING CLI ARGS\n");
 #endif
+    // parse command line args into args structure
     CLARGS args;
     if (!parseArgs(argc, argv, &args) && commRank == RANK_ROOT) {
         printUsage(argv[0]);
         // Terminates MPI execution environment
+        // we do this to signal to all out non root processes to terminate
         MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
         exit(EXIT_FAILURE);
     }
@@ -134,14 +154,17 @@ int main(int argc, char* argv[]) {
     int inN;
     int* inMat;
     if (commRank == RANK_ROOT) {
+        // load the matrix from binary file on the root process
         inMat = matFromBinFile(args.filepath, &inN);
         if (inN % commSize != 0) {
             // TODO: could adjust the MPI_Group size here to next highest valid commSize instead of aborting
-            // Would need to keep track of comm variable instead of using MPI_COMM_WORLD
+            // Would need to keep track of our new comm as a variable instead of using MPI_COMM_WORLD
             // MPI_Comm_group -> MPI_Group_range_excl -> MPI_Comm_create
             printf("The number of vertices in the input matrix "
                    "must be evenly divisible by the number of "
                    "processes requested.\n");
+            // Terminates MPI execution environment
+            // we do this to signal to all out non root processes to terminate
             MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
             exit(EXIT_FAILURE);
         }
@@ -151,15 +174,17 @@ int main(int argc, char* argv[]) {
     if (commRank == RANK_ROOT) printf("\tABOUT TO BCASR IN N\n");
 #endif
     // Broadcasts a message from the process with rank root to all other processes of the group
-    // broadcast the n for the input matrix
-    MPI_Bcast(&inN, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    // broadcast size of input matrix to all non root processes
+    MPI_Bcast(&inN, 1, MPI_INT, RANK_ROOT, MPI_COMM_WORLD);
 
 #ifdef DEBUG
     if (commRank == RANK_ROOT) printf("\tABOUT TO START TIMING\n");
 #endif
+    // Synchronization between MPI processes in a group
+    // we do this to ensure all procs are up to this point before we start timing
+    MPI_Barrier(MPI_COMM_WORLD); 
     // Returns an elapsed time on the calling processor
     // get the start time of our algorithm
-    MPI_Barrier(MPI_COMM_WORLD); // ensure all procs are up to this point before we start timing
     double t0 = MPI_Wtime();
 
 #ifdef DEBUG
@@ -167,7 +192,7 @@ int main(int argc, char* argv[]) {
 #endif
 
     // Sends data from one task to all tasks in a group
-    // scatter the input matrix to all our processes
+    // partition the input matrix by scattering the it to all our processes
     int partN = inN * inN / commSize;
     int* partMat = matNew(partN);
     MPI_Scatter(inMat, partN, MPI_INT, partMat, partN, MPI_INT, RANK_ROOT, MPI_COMM_WORLD);
@@ -175,7 +200,7 @@ int main(int argc, char* argv[]) {
 #ifdef DEBUG
     if (commRank == RANK_ROOT) printf("\tABOUT TO START FLOYD\n");
 #endif
-    // run our floyd-warshall algorithm in our part matrix
+    // run the floyd-warshall algorithm on our part matrix
     floydWarshall(partMat, inN, commRank, commSize, MPI_COMM_WORLD);
     
 #ifdef DEBUG
@@ -198,13 +223,13 @@ int main(int argc, char* argv[]) {
 #ifdef DEBUG
     if (commRank == RANK_ROOT) printf("\tABOUT TO OUTPUT REQUIRED DATA\n");
 #endif
-    // Outputs the requested data from root
+    // Outputs the requested data on root
     if (commRank == RANK_ROOT) {
         if (args.shouldPrint) {
             matPrint(finalMat, finalN);
         }
         if (args.shouldTime) {
-            printf("Floyd-Warshall running on %d processes took %.4fms\n", commSize, (t1 - t0) * 1000);
+            printf("Floyd-Warshall running on %d processes for matrix size %d took %.4fms\n", commSize, inN, (t1 - t0) * 1000);
         }
         if (args.shouldOutput) {
             char outpath[BUFSIZ];
@@ -217,13 +242,15 @@ int main(int argc, char* argv[]) {
 #ifdef DEBUG
     if (commRank == RANK_ROOT) printf("\tABOUT TO FREE MEMORY\n");
 #endif
-    // Terminates MPI execution environment
+    // free malloc'd memory
     free(inMat);
     free(partMat);
     free(finalMat);
 #ifdef DEBUG
     if (commRank == RANK_ROOT) printf("\tABOUT TO FINALISE\n");
 #endif
+    // Terminates MPI execution environment
+    // we use this to exit gracefully
     MPI_Finalize();
     return EXIT_SUCCESS;
 }
