@@ -76,8 +76,16 @@ int* matFromBinFile(const char* filepath, int* n) {
     return mat;
 }
 
-// this assumes that INT_INF has been converted to 0 already
 void matToBinFile(const char* filepath, int* mat, int n) {
+    // convert INT_INF to zero for output
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n; j++) {
+            int val = matGet(mat, n, i, j);
+            if (val == INT_INF) {
+                matSet(mat, n, i, j, 0);
+            }
+        }
+    }
     FILE* fp;
     fp = fopen(filepath, "wb");
     fwrite(&n, sizeof(int), 1, fp); // write the size of the matrix
