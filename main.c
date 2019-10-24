@@ -160,6 +160,8 @@ int main(int argc, char* argv[]) {
             // TODO: could adjust the MPI_Group size here to next highest valid commSize instead of aborting
             // Would need to keep track of our new comm as a variable instead of using MPI_COMM_WORLD
             // MPI_Comm_group -> MPI_Group_range_excl -> MPI_Comm_create
+            // We require this as we do not want to split up rows over multiple processes
+            // See MPI_Bcast() call in floydWarshall()
             printf("The number of vertices in the input matrix "
                    "must be evenly divisible by the number of "
                    "processes requested.\n");
