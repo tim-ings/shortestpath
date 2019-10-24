@@ -33,7 +33,7 @@ The number of vertices in the input matrix should be evenly divisible by the num
 #define true 1
 #define false 0
 
-// #define DEBUG
+//#define DEBUG
 
 struct {
     bool shouldOutput;
@@ -159,11 +159,13 @@ int main(int argc, char* argv[]) {
 #endif
     // Returns an elapsed time on the calling processor
     // get the start time of our algorithm
+    MPI_Barrier(MPI_COMM_WORLD); // ensure all procs are up to this point before we start timing
     double t0 = MPI_Wtime();
 
 #ifdef DEBUG
     if (commRank == RANK_ROOT) printf("\tABOUT TO START SCATTERING\n");
 #endif
+
     // Sends data from one task to all tasks in a group
     // scatter the input matrix to all our processes
     int partN = inN * inN / commSize;

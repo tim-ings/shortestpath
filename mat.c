@@ -22,7 +22,8 @@ void* mallocRetry(size_t s) {
 
 // Allocates a new matrix
 int* matNew(int n) {
-    return mallocRetry(n * n * sizeof(int));
+    int nn = n + 1;
+    return mallocRetry(nn * nn * sizeof(int));
 }
 
 // Gets a value from matrix mat at (i,j) with dimensions n
@@ -53,7 +54,7 @@ int* matFromBinFile(const char* filepath, int* n) {
     FILE* fp;
     fp = fopen(filepath, "rb");
     fread(n, sizeof(int), 1, fp);
-    int* mat = matNew(*n);
+    int* mat = matNew(*n * 2);
     fread(mat, sizeof(int), (*n) * (*n), fp);
     // convert all zeroes that are not i==j in input mat to INT_INF
     for (int i = 0; i < (*n); i++) {
